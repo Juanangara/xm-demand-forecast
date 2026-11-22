@@ -4,3 +4,4 @@ pyarrow>=15
 pytest>=8
 mlflow>=2.14
 holidays>=0.109
+lightgbm>=4.3

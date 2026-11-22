@@ -80,3 +80,28 @@ A sharp drop followed by a gradual recovery over a few hours looks like a real g
 **What this means for the model:** a good holiday treatment is the biggest and cheapest gain available, so Phase 6 must add holiday features and then report the improvement separately on ordinary days and on holiday-affected days. If the model only wins on holidays, that is the honest summary. The 2.57 % is what the baseline does on ordinary days, not a floor for a model.
 
 **Limits:** only 4 years of test data, so about 70 holidays; the holiday MAPE is based on few distinct days (each one contributes 24 correlated hours).
+
+## Phase 6: LightGBM, walk-forward (2026-11-22)
+
+**Design:** the model predicts `y / lag_168` (the change relative to the same hour last week) from scale-free features, so it does not have to extrapolate the 2x growth in demand since 2000. Features (`src/xmforecast/features.py`): hour, weekday, month, day type, holiday flags for the reference days (24, 168 and 336 h earlier), ratios of the 24, 48 and 336 h lags to the 168 h lag, and the ratio of the previous-week mean. Every feature uses values at least 24 h old; `tests/test_features.py` proves it by rewriting everything from day D onwards and checking that D's features do not move. The model is retrained at the start of every test month (46 folds) on hours strictly before that month, with the two reviewed disturbances masked in training only.
+
+**Results (test 2023-01 to 2026-10; MLflow runs `lgbm_window_*`):**
+
+| Model | MAPE | Worst month | Ordinary hours | Holiday-affected hours |
+|---|---|---|---|---|
+| naive 168 h (baseline) | 3.37 % | 5.63 % | 2.63 % | 10.91 % |
+| LightGBM, all history | 1.70 % | 2.57 % | 1.64 % | 2.35 % |
+| LightGBM, last 5 years | **1.64 %** | 2.47 % | 1.58 % | 2.20 % |
+| LightGBM, last 3 years | 1.70 % | 2.51 % | 1.63 % | 2.47 % |
+
+"Holiday-affected" = the target is a holiday, or last week's copy was one. (Ordinary baseline error is 2.63 % here and 2.57 % in Phase 5 because the Phase 5 figure also excluded days next to a holiday.)
+
+**What holds up:**
+- LightGBM beats the baseline in **46 of 46 months** and in every year (2023: 3.24 -> 1.67, 2024: 3.55 -> 1.80, 2025: 3.39 -> 1.51, 2026: 3.27 -> 1.56 for the 5-year window).
+- The gain is not only holidays: ordinary hours go from 2.63 % to 1.58 %, and holiday-affected hours from 10.91 % to 2.20 %, so the holiday features did what Phase 5 predicted.
+- Remaining weak spots (5-year window): holidays 2.31 %, near-holiday days 2.04 %, Sundays 1.83 %, versus 1.50 % on ordinary weekdays.
+
+**What does not hold up yet:**
+- **The window choice is weak.** 5 years beats all history in 37 of 46 months, but by 0.06 points of MAPE overall, and I picked it by looking at the test period among three options. Treat it as "no clear difference"; it needs a proper selection split or a significance test (Phase 7) before claiming it.
+- Feature importances (split counts) were saved only for the last run; they are not causal and say little about the other windows. `r24` (yesterday relative to last week) ranks first, which suggests the model mostly corrects the weekly baseline with the most recent level.
+- 46 months are not independent, and there is no confidence interval yet.
