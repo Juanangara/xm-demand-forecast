@@ -58,3 +58,25 @@ A sharp drop followed by a gradual recovery over a few hours looks like a real g
 3. Only reviewed events (7 hours in total) are masked, and only for training. The test period (2023 onwards) contains none of them and is never masked, so reported errors are not flattered.
 
 **Still open:** the cause of the two events; whether XM changed how it measures demand over the years (the trend from 4.8 to 9.6 GWh/h looks real but was not checked against a second source).
+
+## Phase 5: where the baseline fails, and the holiday calendar (2026-11-22)
+
+**Calendar:** Colombian public holidays come from the `holidays` package (0.109), including the rule that moves many of them to Monday. It was checked against 2024 holidays written down by hand (18 of 18 match) and the yearly counts for 2023 (18) and 2025 (17) agree with what I know. This is a check against my own knowledge, **not against the official decree**; a wrong date would hurt the holiday features, so it is worth a second look before publishing.
+
+**Error of the naive 168 h baseline by day type (test 2023-01 to 2026-10, 35,000 hours; `scripts/error_analysis.py`):**
+
+| Target day | Hours | MAPE | Share of hours | Share of total error |
+|---|---|---|---|---|
+| holiday | 1,632 | 10.80 % | 4.9 % | 14.1 % |
+| near a holiday (weekday) | 1,752 | 3.67 % | 5.2 % | 5.6 % |
+| weekday | 20,712 | 3.01 % | 61.6 % | 57.8 % |
+| saturday | 4,776 | 2.91 % | 14.2 % | 12.1 % |
+| sunday | 4,728 | 2.72 % | 14.1 % | 10.3 % |
+
+- The baseline also fails the week **after** a holiday, because it copies the holiday: 1,368 hours where the target is a normal day but last week's copy was a holiday, MAPE **11.05 %**.
+- Hours touched by a holiday, as target or as reference, are **8.9 % of the hours but 28.4 % of the total error**.
+- On ordinary days with an ordinary reference the baseline already reaches **2.57 % MAPE** (against 3.37 % overall). By hour it is flat, between 2.2 % and 2.8 %, so there is no bad hour to fix.
+
+**What this means for the model:** a good holiday treatment is the biggest and cheapest gain available, so Phase 6 must add holiday features and then report the improvement separately on ordinary days and on holiday-affected days. If the model only wins on holidays, that is the honest summary. The 2.57 % is what the baseline does on ordinary days, not a floor for a model.
+
+**Limits:** only 4 years of test data, so about 70 holidays; the holiday MAPE is based on few distinct days (each one contributes 24 correlated hours).
