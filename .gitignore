@@ -1,0 +1,19 @@
+# Internal working notes (not published)
+GUIA_INTERNA.md
+
+# Data and artifacts (reproducible from the scripts)
+data/
+mlruns/
+*.parquet
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# Env / IDE
+.env
+.idea/
+.vscode/
