@@ -23,6 +23,7 @@ def walk_forward_lgbm(
     test_start: str,
     train_years: int | None = None,
     params: dict | None = None,
+    test_end: str | None = None,
 ) -> tuple[pd.Series, pd.DataFrame]:
     """Return (predictions for every test hour, feature importance by fold).
 
@@ -31,7 +32,8 @@ def walk_forward_lgbm(
     """
     p = {**DEFAULT_PARAMS, **(params or {})}
     preds, imps = [], []
-    folds = pd.period_range(test_start, feats.index.max(), freq="M")
+    end_ts = pd.Timestamp(test_end) if test_end else feats.index.max()
+    folds = pd.period_range(test_start, end_ts, freq="M")
     for month in folds:
         start, end = month.start_time, month.end_time
         train = train_feats[train_feats.index < start]
@@ -46,5 +48,5 @@ def walk_forward_lgbm(
         ok = test.dropna(subset=FEATURES + ["base"])
         preds.append(pd.Series(model.predict(ok[FEATURES]) * ok["base"], index=ok.index))
         imps.append(pd.Series(model.feature_importances_, index=FEATURES, name=str(month)))
-    pred = pd.concat(preds).reindex(feats.loc[test_start:].index)
+    pred = pd.concat(preds).reindex(feats.loc[test_start:end_ts].index)
     return pred, pd.DataFrame(imps)

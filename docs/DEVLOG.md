@@ -105,3 +105,41 @@ A sharp drop followed by a gradual recovery over a few hours looks like a real g
 - **The window choice is weak.** 5 years beats all history in 37 of 46 months, but by 0.06 points of MAPE overall, and I picked it by looking at the test period among three options. Treat it as "no clear difference"; it needs a proper selection split or a significance test (Phase 7) before claiming it.
 - Feature importances (split counts) were saved only for the last run; they are not causal and say little about the other windows. `r24` (yesterday relative to last week) ranks first, which suggests the model mostly corrects the weekly baseline with the most recent level.
 - 46 months are not independent, and there is no confidence interval yet.
+
+## Phase 7: reference model, window selection and significance (2026-11-22)
+
+**Window chosen without the test period.** Each window was trained on 2021-2022 only (`scripts/select_window.py`): all history 1.527 %, last 5 years **1.456 %**, last 3 years 1.482 % MAPE. The 5-year window wins on validation too, so the Phase 6 choice stands, now for a reason that does not depend on the test numbers.
+
+**Classical reference model.** MSTL (daily + weekly seasonality) with an ETS trend, fitted for every test day only on the 6 weeks before it (`scripts/stat_baseline.py`, 1,400 daily refits). It knows nothing about holidays, on purpose: it is what a good classical model does without calendar knowledge.
+
+**Test 2023-01 to 2026-10, same 33,600 hours for every model (`scripts/compare.py`):**
+
+| Model | MAPE | Ordinary days (1,275) | Holiday-affected days (125) | Worst day |
+|---|---|---|---|---|
+| naive 168 h | 3.37 % | 2.63 % | 10.91 % | 26.64 % |
+| MSTL | 2.25 % | 1.84 % | 6.38 % | 16.21 % |
+| LightGBM, all history | 1.70 % | 1.64 % | 2.35 % | 9.83 % |
+| **LightGBM, 5 years** | **1.64 %** | **1.58 %** | **2.20 %** | 8.02 % |
+| LightGBM, 3 years | 1.70 % | 1.63 % | 2.47 % | 11.48 % |
+
+**Significance (Diebold-Mariano on daily MAPE, Newey-West with 7 lags; 95 % moving-block bootstrap CI, blocks of 14 days). Difference = LightGBM 5 y minus the other, negative is better:**
+
+| Versus | Days | Difference (MAPE points) | 95 % CI | p |
+|---|---|---|---|---|
+| naive 168 h | all | -1.73 | [-1.99, -1.51] | < 1e-50 |
+| MSTL | all | -0.61 | [-0.77, -0.47] | 5e-18 |
+| MSTL | ordinary only | -0.26 | [-0.38, -0.16] | 1e-7 |
+| MSTL | holiday-affected | -4.17 | [-4.72, -3.72] | < 1e-60 |
+| LightGBM, all history | all | -0.06 | [-0.09, -0.03] | 2e-5 |
+| LightGBM, all history | holiday-affected | -0.14 | [-0.42, 0.01] | 0.26 |
+| LightGBM, 3 years | all | -0.07 | [-0.10, -0.04] | 2e-5 |
+
+**What this supports:**
+- LightGBM beats the naive baseline and the MSTL model with intervals far from zero, **also on ordinary days** (0.26 points better than MSTL), so the gain is not only holiday handling. Most of MSTL's remaining error is holidays (6.38 %), as expected.
+- The window effect is real but small: about 0.06 points, with an interval that excludes zero overall but includes it on holiday-affected days (only 125 days). Practically, "5 years" and "all history" are close.
+
+**Limits I want on record:**
+- **The test period was not untouched.** The holiday features were designed after Phase 5 looked at baseline errors in this same period (2023-2026). The validation split fixes the window choice, not the feature design, so the final numbers are probably a little optimistic. The 2021-2022 validation MAPE of the selected setup (1.46 %) versus 1.64 % on test shows no sign of a collapse, but it is not an independent holdout either.
+- MSTL has a single setting (6-week window, no holiday regressors) and LightGBM uses default-like hyperparameters; neither was tuned. A stronger classical model would add holiday regressors.
+- The "holiday-affected" comparison uses 125 scattered days, so the Diebold-Mariano assumptions are looser there; read those p-values as indicative.
+- Fifteen paired tests were run without a multiple-comparison correction; all the headline results are far below any reasonable threshold, the 0.26 p-value is the only one that matters for a negative claim.
