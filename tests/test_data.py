@@ -28,12 +28,12 @@ def test_to_long_keeps_missing_values_as_nan():
 
 
 def test_quality_counts_absent_hours_as_missing():
-    # 2 days present out of a 366-day year -> everything else is missing
-    report = quality_by_year(to_long(_wide(2)))
-    row = report.iloc[0]
-    assert row["expected_h"] == 8784
-    assert row["missing_h"] == 8784 - 48
-    assert row["longest_gap_h"] > 8000
+    # Jan 1 and Jan 3 present, Jan 2 absent -> its 24 hours are one gap
+    wide = _wide(3).drop(index=1)
+    row = quality_by_year(to_long(wide)).iloc[0]
+    assert row["expected_h"] == 72
+    assert row["missing_h"] == 24
+    assert row["longest_gap_h"] == 24
 
 
 def test_usable_from_requires_all_later_years_clean():
@@ -41,3 +41,20 @@ def test_usable_from_requires_all_later_years_clean():
     assert usable_from(report) == 2001
     report.loc[2, "missing_pct"] = 3.0
     assert usable_from(report) is None
+
+
+def test_to_long_coerces_text_values_to_numeric():
+    wide = _wide(1).astype({c: object for c in HOUR_COLS})
+    wide.loc[0, HOUR_COLS[0]] = "123.5"
+    wide.loc[0, HOUR_COLS[1]] = "n/a"
+    long = to_long(wide)
+    assert pd.api.types.is_float_dtype(long["value"])
+    assert long["value"].iloc[0] == 123.5
+    assert long["value"].isna().sum() == 1
+
+
+def test_quality_does_not_count_future_hours_of_partial_year_as_missing():
+    report = quality_by_year(to_long(_wide(3)))
+    row = report.iloc[0]
+    assert row["expected_h"] == 72
+    assert row["missing_h"] == 0

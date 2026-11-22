@@ -8,9 +8,10 @@ def quality_by_year(df: pd.DataFrame) -> pd.DataFrame:
     """Per-year completeness: missing hours, duplicates, zeros, longest gap, outliers."""
     df = df.copy()
     df["year"] = df["ts"].dt.year
+    last_ts = df["ts"].max()  # a partial final year must not count its future hours as gaps
     rows = []
     for year, g in df.groupby("year"):
-        full = pd.date_range(f"{year}-01-01", f"{year}-12-31 23:00", freq="h")
+        full = pd.date_range(f"{year}-01-01", min(pd.Timestamp(f"{year}-12-31 23:00"), last_ts), freq="h")
         s = g.drop_duplicates("ts").set_index("ts")["value"].reindex(full)
         missing = s.isna()
         # longest run of consecutive missing hours

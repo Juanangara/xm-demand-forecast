@@ -31,6 +31,7 @@ def to_long(wide: pd.DataFrame) -> pd.DataFrame:
     long["ts"] = pd.to_datetime(long["Date"]) + pd.to_timedelta(
         long["h"].str[-2:].astype(int) - 1, unit="h"
     )
+    long["value"] = pd.to_numeric(long["value"], errors="coerce")
     return long[["ts", "value"]].sort_values("ts").reset_index(drop=True)
 
 
@@ -70,4 +71,7 @@ def download(metric: str, entity: str, start_year: int, end: dt.date) -> pd.Data
         for month in range(1, last + 1):
             frames.append(fetch_month(metric, entity, year, month))
         print(f"{metric} {year} ok", flush=True)
-    return pd.concat(frames, ignore_index=True)
+    df = pd.concat(frames, ignore_index=True)
+    # Months cached before to_long coerced values may still hold text.
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    return df
