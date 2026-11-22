@@ -9,7 +9,7 @@ What was tried, what was measured, and what did not work. Newest entries last.
 **Result of the first full pull (2000-01-01 to 2026-10-31, 235,224 hourly rows):**
 - 0 missing hours, 0 duplicates, 0 zeros in every year. The series is complete.
 - Strong trend: yearly median goes from ~4.8 GWh/h (2000) to ~9.6 GWh/h (2025). A model trained on old years sees a different level, so the training window and drift monitoring matter.
-- The lowest values are short isolated episodes, not scattered noise: 2007-04-26 10:00-12:00 (min 0.41 GWh), 2002-03-16/17 and 2000-01-17. **Cause not investigated yet**; they are kept in the data until checked, not silently removed.
+- The lowest values are short isolated episodes, not scattered noise: 2007-04-26 10:00-12:00 (min 0.41 GWh) and 2002-03-16/17. They are kept in the raw data. (An earlier version of this note also listed 2000-01-17; that was wrong, it is just the minimum of that year. See Phase 4.)
 
 **Two mistakes caught while building the report:**
 1. XM returned some months with text values, so a median crashed. Values are now coerced to numeric (non-numeric becomes NaN, so it shows up as a gap, not as a crash).
@@ -33,3 +33,28 @@ Any model has to beat **3.37 %** to be worth keeping. Last week's value wins bec
 **Known weakness of both baselines, not yet measured:** public holidays. Both copy a normal day onto a holiday (and the next week onto the day after one). The worst months are the first thing to inspect before adding holiday features, so that the improvement can be attributed instead of assumed.
 
 **Limits:** 46 folds are not independent (consecutive months share a trend), so the spread across folds describes variability, not a confidence interval.
+
+## Phase 4: data audit and cleaning rules (2026-11-22)
+
+Phases 1-2 only audited gaps, duplicates and zeros; nothing had been cleaned or reviewed. This phase checks what was missing.
+
+**Checks and results (235,224 hours, 2000-2026):**
+- **Frozen values (3 or more identical hours in a row):** none.
+- **Hour-to-hour jumps above 25 %:** 655, but they are structural, not errors. They sit at 05:00 and 18:00 (the morning and evening ramps) and shrink over time: the median jump at 18:00 goes from +21 % (2000-04) to +5 % (2025-26). The shape of the daily curve changed, which supports limiting the training window instead of using all 26 years.
+- **Same hour vs. the median of +-4 weeks (ratio outside 0.6-1.4):** only 16 hours. They are two disturbances and two New Year's Days.
+- **Daily totals 20 % away from the same weekday in nearby weeks:** 53 days, mostly public holidays (1 January, Good Friday). Expected, handled in Phase 5.
+
+**Reviewed events (the only ones treated as anomalous):**
+| Event | Observation |
+|---|---|
+| 2002-03-16 23:00 to 03-17 01:00 | demand falls to 49-72 % of the previous week and recovers by 02:00 |
+| 2007-04-26 10:00 to 13:00 | demand falls to 6 % of the previous week at 10:00 and recovers by 14:00 |
+
+A sharp drop followed by a gradual recovery over a few hours looks like a real grid event, not a corrupted reading. **The cause was not verified**, so this is an interpretation, not a finding.
+
+**Cleaning rules (`src/xmforecast/audit.py`):**
+1. The raw series is never edited.
+2. A detector flags candidates; a person reviews them. Public holidays are flagged too (the detector does not know the calendar), so a flag is not a verdict.
+3. Only reviewed events (7 hours in total) are masked, and only for training. The test period (2023 onwards) contains none of them and is never masked, so reported errors are not flattered.
+
+**Still open:** the cause of the two events; whether XM changed how it measures demand over the years (the trend from 4.8 to 9.6 GWh/h looks real but was not checked against a second source).
