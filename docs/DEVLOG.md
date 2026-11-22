@@ -16,3 +16,20 @@ What was tried, what was measured, and what did not work. Newest entries last.
 2. The first report flagged 2026 as 16.7 % missing. It was comparing against the full year while the data ends on 31 October. The report now only counts hours up to the last available timestamp.
 
 **Not checked yet:** XM terms of use for redistributing data (the repo does not ship data; it is rebuilt with `scripts/download.py`).
+
+## Phase 3: validation and baselines (2026-11-22)
+
+**Setting:** day-ahead. At 00:00 of day D we know everything before D and forecast its 24 hours. Folds are the 46 calendar months from 2023-01 to 2026-10, each scored on its own. `seasonal_naive` refuses lags under 24 h, since those would use values from the day being forecast.
+
+**Baselines (test 2023-01 to 2026-10, logged in MLflow, experiment `day-ahead-demand`):**
+
+| Model | MAE | MAPE | Worst month (MAPE) |
+|---|---|---|---|
+| naive 24 h (same hour yesterday) | 458 MWh | 4.90 % | 5.73 % |
+| naive 168 h (same hour last week) | 315 MWh | 3.37 % | 5.63 % |
+
+Any model has to beat **3.37 %** to be worth keeping. Last week's value wins because demand depends strongly on the day of the week; yesterday is wrong every Monday and every weekend.
+
+**Known weakness of both baselines, not yet measured:** public holidays. Both copy a normal day onto a holiday (and the next week onto the day after one). The worst months are the first thing to inspect before adding holiday features, so that the improvement can be attributed instead of assumed.
+
+**Limits:** 46 folds are not independent (consecutive months share a trend), so the spread across folds describes variability, not a confidence interval.

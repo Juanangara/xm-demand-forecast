@@ -2,3 +2,4 @@ pydataxm==0.3.19
 pandas>=2.2
 pyarrow>=15
 pytest>=8
+mlflow>=2.14
