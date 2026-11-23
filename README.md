@@ -141,7 +141,9 @@ docs/             DEVLOG.md (measurements and decisions), MODEL_CARD.md, figures
 ```
 
 ## Data
-Demand comes from [XM](https://www.xm.com.co) through the `pydataxm` package. The data and the trained model are **not** included in the repository: they are rebuilt with the scripts above. I did not review XM's terms of use for redistribution, which is why nothing derived from the data is shipped.
+Demand comes from [XM](https://www.xm.com.co) through the `pydataxm` package (source: XM). No data file and no trained model are included: they are rebuilt with the scripts above. The repository does show results derived from the data: aggregate error tables and figures, one of which (`docs/holy_week.png`) plots two weeks of real hourly demand.
+
+On reuse terms: the `pydataxm` and SIMEM client code is MIT-licensed, but I found no licence or terms for the data itself, and XM's website terms (read only in part) restrict copying and publishing its content without authorization; I could not read the SIMEM terms, and it is unclear whether the website terms cover the API. Treat reuse of the data as unresolved: rebuild it yourself with the scripts, do not redistribute it, and ask XM if you need to.
 
 ## Limitations
 - It is not a live service: the history is a Parquet file that ends at the last downloaded complete month, and there is no daily refresh job.

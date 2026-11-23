@@ -15,7 +15,7 @@ What was tried, what was measured, and what did not work. Newest entries last.
 1. XM returned some months with text values, so a median crashed. Values are now coerced to numeric (non-numeric becomes NaN, so it shows up as a gap, not as a crash).
 2. The first report flagged 2026 as 16.7 % missing. It was comparing against the full year while the data ends on 31 October. The report now only counts hours up to the last available timestamp.
 
-**Not checked yet:** XM terms of use for redistributing data (the repo does not ship data; it is rebuilt with `scripts/download.py`).
+**Not checked yet:** XM terms of use for redistributing data (the repo does not ship data; it is rebuilt with `scripts/download.py`). *Update, Phase 12 follow-up: see "XM terms of use" at the end of this file.*
 
 ## Phase 3: validation and baselines (2026-11-22)
 
@@ -242,3 +242,14 @@ The repository was published as `Juanangara/xm-demand-forecast` (public, no lice
 - On Holy Thursday and Good Friday 2025 LightGBM misses by 3.9 % (the naive baseline by 12.9 %): it still overshoots the holidays themselves. The week after, the naive baseline copies the holidays onto two ordinary days (13.9 % against 1.6 %). That fortnight was picked because it is clear, not because it is typical.
 
 `scripts/make_drift_figure.py` adds `docs/drift.png`: the three monitors divided by their own calibrated thresholds (so 1 is the alarm line) for the clean series and the three injected failures. It recomputes the Phase 10 simulation (two models trained, about two minutes) and reproduces the same thresholds (0.0661, 0.0018, 2.678). Reading the +10 % panel makes the sensitivity limit visible: the level signal peaks only slightly above the line, so a smaller shift would have been missed.
+
+## XM terms of use (2026-11-22)
+
+I looked for the terms that govern reuse of the data (through a web-reading helper, so some of what follows is secondhand). Findings:
+- `API_XM` (the source of `pydataxm`) and `GEDeN-SIMEM-Tools` are **MIT-licensed**, which covers the software only. Neither README nor licence says anything about the data.
+- **No licence for the data itself was found** (no Creative Commons, no Colombian open licence), and no attribution requirement.
+- XM's website terms ("Terminos legales del sitio web"), read only in part and partly through an automatic summary, **restrict copying, distributing or publishing content without authorization**. They are about the website; whether they extend to the API data is unclear.
+- The SIMEM terms could not be read (the page returned no text), nor XM's intellectual-property PDF. Either could change the answer.
+- The API needs no key and caps each call (31 days for hourly series), to avoid congesting the service; our downloader respects that by fetching month by month.
+
+**Consequences.** The repository ships no data and no model, but it does publish results derived from the data, including one figure with two weeks of real hourly demand. Reuse is therefore **unresolved**, not cleared. Decisions that follow: no automated public daily publication of forecasts next to real values until XM's position is known; the README now says plainly what is shown and that reuse is unresolved. This is not legal advice.
