@@ -88,6 +88,7 @@ python scripts/stat_baseline.py        # slow: 1,400 daily refits (about 1 s eac
 python scripts/select_window.py
 python scripts/compare.py
 python scripts/make_figures.py         # redraws docs/results.png and docs/holy_week.png
+python scripts/make_drift_figure.py    # docs/drift.png; about 2 minutes (trains two models)
 
 # 4. Final model for the API (writes models/champion/)
 python scripts/train_final.py
@@ -118,6 +119,14 @@ A day whose previous hour is not in the history returns `422` with a message say
 - No single monitor catches everything: the error-based monitor misses the profile change, because the model adapts through its lag features; only the shape monitor sees it.
 - Retraining when the error alarm fires gained at most 0.05 MAPE points, and cannot fix a broken input. The frozen model scores 1.65 % against 1.64 % for the monthly-retrained one, so the policy is "an alarm opens an investigation", not "an alarm retrains".
 
+![Each monitor's signal divided by its alarm threshold, with no failure and with three injected failures](docs/drift.png)
+
+Each line is a monitor's signal divided by its own threshold (calibrated on 2021-2022, never on this period), so 1 is the alarm line; the failure starts on 3 June 2024 in the three panels where it is marked. In the figure:
+- **Demand +10 %:** the level monitor crosses the line only briefly, and the error monitor barely touches it. A smaller shift would not have been caught.
+- **Evening profile change:** only the shape monitor (green) alarms; the error monitor stays under the line.
+- **Unit bug:** the level and error monitors go orders of magnitude above the threshold from the first days.
+- **They fall back below the line after about two weeks** (both windows then hold the new regime), and in the clean panel the signals stay under it. Over the whole 1,400-day clean run, though, the monitors still raised 10 (level), 10 (shape) and 16 (error) alarm days: they are not free of false alarms (DEVLOG, Phase 10).
+
 `scripts/drift_report.py` writes an Evidently report for the profile-change case.
 
 ## Repository layout
@@ -125,7 +134,7 @@ A day whose previous hour is not in the history returns `422` with a message say
 src/xmforecast/   data, quality, audit, calendar, features, evaluate, forecast,
                   stats, monitor, serving, api
 scripts/          download, baselines, train_lgbm, stat_baseline, select_window,
-                  compare, train_final, make_figures, error_analysis, simulate_drift,
+                  compare, train_final, make_figures, make_drift_figure, error_analysis, simulate_drift,
                   drift_report
 tests/            synthetic-data tests, including the leak and API tests
 docs/             DEVLOG.md (measurements and decisions), MODEL_CARD.md, figures
