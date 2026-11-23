@@ -230,3 +230,7 @@ Linting also found 13 small issues (unused imports, long lines, several statemen
 - The `docker` job only builds the image; it does not start the API, because the model and data are not in git, so there is nothing to serve in CI.
 - The image is 875 MB (pandas, pyarrow, LightGBM); it has not been slimmed.
 - Lint rules are deliberately minimal (errors, pyflakes, warnings, import order). There is no coverage report, no type checking, and no deployment step (CD).
+
+## Publication (2026-11-22)
+
+The repository was published as `Juanangara/xm-demand-forecast` (public, no license). The first real GitHub Actions run passed on both jobs (`test`: lint and 41 tests on Ubuntu; `docker`: image build), with no fix needed after the clean-checkout check of Phase 11. This closes the first limit listed there ("not yet run on GitHub"); the other limits stand (the Docker job only builds the image, no coverage, no CD).
