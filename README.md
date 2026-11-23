@@ -183,4 +183,4 @@ On reuse terms: the `pydataxm` and SIMEM client code is MIT-licensed, but I foun
 - Drift monitoring is an offline simulation with three synthetic failures; it is not wired to the API.
 - Only the national system total is modelled, and the Colombian holiday calendar comes from the `holidays` package, checked against my own knowledge but not against the official decree.
 - Weather was deliberately left out: for a day-ahead forecast only *forecast* weather would exist, and using observed weather would leak information.
-- The CI workflow has been verified in a clean local checkout; read the badge for its status on GitHub.
+- CI runs on every push (badge at the top): lint, tests on synthetic data and the Docker build. The Docker job only builds the image, and there is no deployment step.
