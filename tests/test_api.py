@@ -88,3 +88,31 @@ def test_api_flags_holidays(env):
     with TestClient(create_app(mdir, data)) as c:
         r = c.get("/forecast", params={"date": "2024-02-19"})  # an ordinary Monday
         assert r.json()["is_holiday"] is False
+
+
+def test_api_returns_ordered_intervals_when_the_model_has_a_spec(env, tmp_path):
+    from pathlib import Path
+
+    _, mdir, data = env
+    meta_file = Path(mdir) / "meta.json"
+    meta = json.loads(meta_file.read_text("utf-8"))
+    q = [-0.05, -0.02, 0.02, 0.05]  # q0.025, q0.1, q0.9, q0.975 as relative errors
+    meta["intervals"] = {"method": "residuals_by_day_type", "quantiles": [0.025, 0.1, 0.9, 0.975],
+                         "groups": {"0": {"n": 500, "q": q}}, "fallback": {"n": 900, "q": [-0.08, -0.03, 0.03, 0.08]}}
+    meta_file.write_text(json.dumps(meta), encoding="utf-8")
+    with TestClient(create_app(mdir, data)) as c:
+        body = c.get("/forecast", params={"date": "2024-02-20"}).json()
+        assert body["interval_method"] == "residuals_by_day_type"
+        for h in body["hours"]:
+            assert h["lower_95_kwh"] < h["lower_80_kwh"] < h["forecast_kwh"] < h["upper_80_kwh"] < h["upper_95_kwh"]
+        # an ordinary Tuesday uses group 0: its 80 % band is exactly forecast * (1 - 0.02, 1 + 0.02)
+        h0 = body["hours"][0]
+        assert abs(h0["lower_80_kwh"] / h0["forecast_kwh"] - 0.98) < 1e-9
+
+
+def test_api_without_a_spec_has_no_intervals(env):
+    _, mdir, data = env
+    with TestClient(create_app(mdir, data)) as c:
+        body = c.get("/forecast", params={"date": "2024-02-20"}).json()
+        assert body["interval_method"] is None
+        assert body["hours"][0]["lower_80_kwh"] is None and body["hours"][0]["upper_95_kwh"] is None

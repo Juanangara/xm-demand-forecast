@@ -15,6 +15,7 @@ This repo is also a measurement log: the [development log](docs/DEVLOG.md) recor
 - Colombian public-holiday calendar as features (holidays are 9 % of the hours but 28 % of the baseline's error)
 - Comparison against a seasonal-naive baseline and a classical MSTL model, with Diebold-Mariano tests and block-bootstrap confidence intervals
 - Training window chosen on a validation split that precedes the test period
+- 80 % and 95 % prediction intervals, with their calibration measured (coverage with confidence intervals, by day type) against two alternative methods
 - MLflow experiment tracking and model registry
 - FastAPI service in Docker, with input validation and explicit errors
 - Drift monitoring (level, daily shape, model error) calibrated on clean data and tested by injecting failures; Evidently report
@@ -70,6 +71,25 @@ What these numbers do **not** say:
 
 Details, tests and caveats: [docs/DEVLOG.md](docs/DEVLOG.md) and [docs/MODEL_CARD.md](docs/MODEL_CARD.md).
 
+## Prediction intervals
+A point forecast says little about how much to trust it, so the service also returns 80 % and 95 % intervals. Four ways of building them were compared walk-forward on 2023-04 to 2026-10 (1,310 days), by **coverage**: does an 80 % interval contain the real value about 80 % of the time?
+
+![Coverage of four interval methods against their targets, overall and by day type](docs/intervals.png)
+
+| Method | 80 % interval: coverage (95 % CI) | 95 % interval | Width of the 80 % interval | Pinball loss |
+|---|---|---|---|---|
+| LightGBM quantile regression, raw | 70.2 % (67.9-72.4) | 88.3 % | 4.5 % | 0.284 |
+| Recent errors, ordinary vs holiday | 79.7 % (77.8-81.8) | 94.8 % | 5.2 % | 0.265 |
+| **Recent errors by day type (shipped)** | **79.1 % (77.2-81.2)** | **94.1 %** | **5.1 %** | **0.265** |
+| Conformalized quantile regression | 80.6 % (78.8-82.5) | 95.1 % | 5.6 % | 0.271 |
+
+- **The obvious method fails.** Raw quantile regression is clearly overconfident (70 % instead of 80 %). My guess is that it learns the spread of the data it was trained on, which is smaller than the spread on new data; I did not test that.
+- **The shipped method is the simple one:** the point forecast times (1 + quantiles of the model's own errors over the last year), separately for each kind of day. It needs no extra models, only stored numbers.
+- **Its weak spot is holidays:** 72.4 % coverage for the 80 % interval on holidays, against 78.7 % for the conformalized version, which is about 9 % wider and needs four more models. I chose simplicity and wrote the trade-off down.
+- In the Holy Week example, 85 % of the hours fall inside the 80 % band over the fortnight, but only 52 % on the two holidays themselves, where the model overshoots.
+
+The method was picked among four after seeing this same evaluation period, so these coverage numbers are somewhat optimistic for the shipped one. The service uses quantiles fixed when the model was trained; they should be recomputed whenever it is retrained.
+
 ## Quick start
 Requirements: Python 3.12 and Docker. **The data is not in this repo**: it is rebuilt from the XM API (see [Data](#data)).
 
@@ -87,6 +107,7 @@ python scripts/train_lgbm.py
 python scripts/stat_baseline.py        # slow: 1,400 daily refits (about 1 s each on one core)
 python scripts/select_window.py
 python scripts/compare.py
+python scripts/intervals.py            # prediction intervals; about 10 minutes (4 quantile models x 46 months)
 python scripts/make_figures.py         # redraws docs/results.png and docs/holy_week.png
 python scripts/make_drift_figure.py    # docs/drift.png; about 2 minutes (trains two models)
 
@@ -108,11 +129,11 @@ ruff check src tests scripts && pytest -q
 ## API
 | Method | Path | Description |
 |---|---|---|
-| GET | `/forecast?date=YYYY-MM-DD` | 24 hourly forecasts in kWh, day type, holiday flag, model version; the day's MAPE when real values exist |
+| GET | `/forecast?date=YYYY-MM-DD` | 24 hourly forecasts in kWh with 80 % and 95 % intervals, day type, holiday flag, model version; the day's MAPE when real values exist |
 | GET | `/health` | Status and the span of the loaded history |
 | GET | `/model` | Model metadata: training end, features, code commit, reference metrics |
 
-A day whose previous hour is not in the history returns `422` with a message saying what is missing. For days inside the training window the response carries `in_sample: true`, because the `mape_pct` it shows is then optimistic; the honest accuracy figure is the walk-forward result above.
+Each hour carries `lower_80_kwh`, `upper_80_kwh`, `lower_95_kwh` and `upper_95_kwh`, and `interval_method` names how they were built (they are absent if the model has no interval spec). They are wider on holidays than on ordinary weekdays, by construction (about 6.8 % against 4.3 % wide for the 80 % interval in an example). A day whose previous hour is not in the history returns `422` with a message saying what is missing. For days inside the training window the response carries `in_sample: true`, because the `mape_pct` it shows is then optimistic; the honest accuracy figure is the walk-forward result above.
 
 ## Drift monitoring
 `scripts/simulate_drift.py` deploys a model frozen in 2023 and injects three failures (demand +10 %, a change in the evening profile, and a kWh-to-MWh pipeline bug). Main findings:
@@ -132,9 +153,9 @@ Each line is a monitor's signal divided by its own threshold (calibrated on 2021
 ## Repository layout
 ```
 src/xmforecast/   data, quality, audit, calendar, features, evaluate, forecast,
-                  stats, monitor, serving, api
+                  intervals, stats, monitor, serving, api
 scripts/          download, baselines, train_lgbm, stat_baseline, select_window,
-                  compare, train_final, make_figures, make_drift_figure, error_analysis, simulate_drift,
+                  compare, intervals, train_final, make_figures, make_drift_figure, error_analysis, simulate_drift,
                   drift_report
 tests/            synthetic-data tests, including the leak and API tests
 docs/             DEVLOG.md (measurements and decisions), MODEL_CARD.md, figures
@@ -148,6 +169,7 @@ On reuse terms: the `pydataxm` and SIMEM client code is MIT-licensed, but I foun
 ## Limitations
 - It is not a live service: the history is a Parquet file that ends at the last downloaded complete month, and there is no daily refresh job.
 - The API has no authentication, rate limiting or load tests.
+- The prediction intervals under-cover on holidays (about 72 % for the 80 % interval), their method was chosen after seeing the evaluation period, and the quantiles are fixed at training time.
 - Drift monitoring is an offline simulation with three synthetic failures; it is not wired to the API.
 - Only the national system total is modelled, and the Colombian holiday calendar comes from the `holidays` package, checked against my own knowledge but not against the official decree.
 - Weather was deliberately left out: for a day-ahead forecast only *forecast* weather would exist, and using observed weather would leak information.

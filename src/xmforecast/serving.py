@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import lightgbm as lgb
+import numpy as np
 import pandas as pd
 
 from .features import FEATURES, build_features
@@ -32,8 +33,8 @@ class ForecastError(ValueError):
     """The requested day cannot be forecast from the available history."""
 
 
-def forecast_day(champion: Champion, series: pd.Series, day: pd.Timestamp) -> pd.Series:
-    """24 hourly forecasts for `day` (kWh), using only history before `day` 00:00."""
+def _day_features(series: pd.Series, day: pd.Timestamp) -> pd.DataFrame:
+    """Feature rows for the 24 hours of `day`, built only from the history before it."""
     day = pd.Timestamp(day).normalize()
     series = series.sort_index()
     first, last = series.index.min(), series.index.max()
@@ -50,5 +51,37 @@ def forecast_day(champion: Champion, series: pd.Series, day: pd.Timestamp) -> pd
     f = build_features(extended).loc[hours]
     if f[FEATURES + ["base"]].isna().any().any():
         raise ForecastError("history has gaps that make some features unavailable for this day")
+    return f
+
+
+def forecast_day(champion: Champion, series: pd.Series, day: pd.Timestamp) -> pd.Series:
+    """24 hourly forecasts for `day` (kWh), using only history before `day` 00:00."""
+    f = _day_features(series, day)
     pred = champion.booster.predict(f[FEATURES]) * f["base"].to_numpy()
-    return pd.Series(pred, index=hours, name="forecast_kwh")
+    return pd.Series(pred, index=f.index, name="forecast_kwh")
+
+
+def group_code(day_type: pd.Series, ref168_holiday: pd.Series) -> pd.Series:
+    """Error group of an hour: its day type, split by whether last week's copy was a holiday."""
+    return day_type * 2 + ref168_holiday
+
+
+def forecast_day_with_bands(champion: Champion, series: pd.Series, day: pd.Timestamp) -> pd.DataFrame:
+    """Point forecast plus 80 % and 95 % intervals when the model carries an interval spec.
+
+    The intervals are the point forecast times (1 + quantiles of the model's own relative errors
+    on a recent year of walk-forward forecasts), by error group (see scripts/train_final.py).
+    Columns: forecast_kwh and, if available, lower_80, upper_80, lower_95, upper_95.
+    """
+    f = _day_features(series, day)
+    point = champion.booster.predict(f[FEATURES]) * f["base"].to_numpy()
+    out = pd.DataFrame({"forecast_kwh": point}, index=f.index)
+    spec = champion.meta.get("intervals")
+    if not spec:
+        return out
+    codes = group_code(f["day_type"], f["ref168_holiday"]).astype(int).astype(str)
+    quant = np.array([spec["groups"].get(c, spec["fallback"])["q"] for c in codes])  # (24, 4) relative errors
+    # q = [q0.025, q0.1, q0.9, q0.975]
+    out["lower_80"], out["upper_80"] = point * (1 + quant[:, 1]), point * (1 + quant[:, 2])
+    out["lower_95"], out["upper_95"] = point * (1 + quant[:, 0]), point * (1 + quant[:, 3])
+    return out

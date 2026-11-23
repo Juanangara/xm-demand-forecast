@@ -253,3 +253,35 @@ I looked for the terms that govern reuse of the data (through a web-reading help
 - The API needs no key and caps each call (31 days for hourly series), to avoid congesting the service; our downloader respects that by fetching month by month.
 
 **Consequences.** The repository ships no data and no model, but it does publish results derived from the data, including one figure with two weeks of real hourly demand. Reuse is therefore **unresolved**, not cleared. Decisions that follow: no automated public daily publication of forecasts next to real values until XM's position is known; the README now says plainly what is shown and that reuse is unresolved. This is not legal advice.
+
+## Phase 13: prediction intervals (2026-11-22)
+
+**Question.** A point forecast does not say how much to trust it; a day-ahead user needs a range. Is an 80 % interval really right 80 % of the time, including on holidays?
+
+**Four methods, walk-forward, scored from 2023-04-01 to 2026-10-31 (31,440 hours, 1,310 days; the first three months of the test are burn-in for the methods that need a history of errors).** Coverage intervals are 95 % block-bootstrap over days.
+
+| Method | 80 % coverage (CI) | 95 % coverage | Width of the 80 % interval | Pinball loss (% of mean demand) |
+|---|---|---|---|---|
+| Raw quantile regression (LightGBM, 4 quantiles, retrained monthly) | **70.2 %** (67.9-72.4) | 88.3 % | 4.5 % | 0.284 |
+| Recent errors, ordinary vs holiday-affected | 79.7 % (77.8-81.8) | 94.8 % | 5.2 % | 0.265 |
+| Recent errors by day type | 79.1 % (77.2-81.2) | 94.1 % | 5.1 % | 0.265 |
+| Conformalized quantile regression (CQR) | 80.6 % (78.8-82.5) | 95.1 % | 5.6 % | 0.271 |
+
+Coverage of the 80 % interval by kind of day (raw QR / errors ordinary-vs-holiday / errors by day type / CQR): weekday 71.5 / 82.8 / 79.3 / 81.7 %; Saturday 70.1 / 78.1 / 80.1 / 80.0 %; Sunday 68.1 / 72.8 / 80.3 / 79.2 %; near holiday 68.2 / 70.9 / 77.3 / 76.4 %; holiday 63.1 / 76.1 / 72.4 / 78.7 %.
+
+**What happened, in order.**
+1. The first method I built, quantile regression, **failed**: 70 % coverage for an 80 % interval, 62 % on holiday-affected days. My guess (untested) is that it learns the spread of the training data, which is smaller than the spread on new data.
+2. A plain baseline, the point forecast scaled by quantiles of its own recent errors, was well calibrated overall but poor on Sundays (72.8 %) and near holidays (70.9 %) because it only separated holidays from the rest.
+3. CQR repaired the quantile models (it widens the bands by a recent out-of-sample margin) and was best on holidays, but wider.
+4. Grouping the errors by full day type fixed Sundays and near-holiday days at no cost in width, but holidays stayed low (72.4 %).
+
+**Decision.** The shipped method is the errors-by-day-type one: it needs no extra models (the quantiles per group live in `meta.json`), it is the narrowest of the calibrated ones, and its pinball loss ties the best. Its known weakness is holidays (72.4 % for the 80 % interval; CQR gets 78.7 % for 9 % more width and four more models). The groups with fewer than 200 hours of errors (for example Sundays whose reference day was a holiday) use the quantiles of all errors.
+
+**Serving.** `GET /forecast` now returns `lower_80_kwh`, `upper_80_kwh`, `lower_95_kwh`, `upper_95_kwh` per hour and `interval_method`. The quantiles come from the walk-forward forecasts of the last 365 days at training time, never from in-sample fits (`scripts/train_final.py` refuses to run without them). Example from the real model: a weekday forecast has an 80 % interval 4.3 % wide, a holiday 6.8 %. Registered as model version 2.
+
+**Limits.**
+- The method was chosen among four after seeing this evaluation period, so its coverage is somewhat optimistic.
+- The quantiles are static in the service. The evaluation updated them every day from the previous year of errors, so the service can be less accurate than the numbers above until they are recomputed at the next retraining.
+- Holidays under-cover; each holiday contributes 24 correlated hours, so the holiday coverage is the least firm number.
+- Hours are not independent, so the confidence intervals use day blocks; they describe variability, not a guarantee.
+- Two mistakes along the way: an invalid MLflow metric name (`width_%`) crashed the first run after the CSVs had been written, and left one empty run behind, which the script now deletes before logging (it replaces earlier results on rerun).

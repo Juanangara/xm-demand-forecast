@@ -1,8 +1,10 @@
 """Draw the README figures from the saved predictions.
 
 Needs data/pred_lgbm_window_5.parquet and data/pred_mstl.parquet (scripts/train_lgbm.py and
-scripts/stat_baseline.py) plus data/DemaReal_Sistema.parquet. Writes docs/results.png and
-docs/holy_week.png. Every number in the figures is recomputed here, not copied.
+scripts/stat_baseline.py), data/DemaReal_Sistema.parquet and, for the interval figure, the
+outputs of scripts/intervals.py. Writes docs/results.png, docs/holy_week.png and
+docs/intervals.png. The numbers are recomputed here, except the coverage table, which is read
+from scripts/intervals.py.
 Usage: python scripts/make_figures.py
 """
 import sys
@@ -20,6 +22,7 @@ import pandas as pd  # noqa: E402
 
 from xmforecast.evaluate import seasonal_naive  # noqa: E402
 from xmforecast.features import build_features  # noqa: E402
+from xmforecast.intervals import residual_quantiles  # noqa: E402
 from xmforecast.stats import block_bootstrap_ci, daily_mape  # noqa: E402
 
 DOCS = HERE.parent / "docs"
@@ -53,7 +56,11 @@ def load():
         "lgbm": pd.read_parquet("data/pred_lgbm_window_5.parquet")["pred"].reindex(feats.index),
     }
     ok = pd.concat(preds, axis=1).notna().all(axis=1)  # the same hours for every model
-    return feats[ok], {k: v[ok] for k, v in preds.items()}
+    feats, preds = feats[ok], {k: v[ok] for k, v in preds.items()}
+    # 80 % band of the LightGBM forecast: its own recent relative errors, by day type (see scripts/intervals.py)
+    band = residual_quantiles(feats, preds["lgbm"], (0.1, 0.9), "2023-04-01",
+                              groups=feats["day_type"] * 2 + feats["ref168_holiday"])
+    return feats, preds, band
 
 
 def bars(ax, cats, values, fmt="{:.1f}"):
@@ -130,7 +137,7 @@ def results_figure(feats, preds):
     plt.close(fig)
 
 
-def holy_week_figure(feats, preds, start="2025-04-13", end="2025-04-27 23:00"):
+def holy_week_figure(feats, preds, band, start="2025-04-13", end="2025-04-27 23:00"):
     """Two weeks around Holy Week 2025: Thursday 17 and Friday 18 April are holidays."""
     sl = slice(start, end)
     y = feats["y"][sl] / 1e6  # kWh per hour -> GWh per hour
@@ -143,6 +150,9 @@ def holy_week_figure(feats, preds, start="2025-04-13", end="2025-04-27 23:00"):
         ax.axvspan(x0, x0 + pd.Timedelta(days=2), color=ORANGE if "naive" in text else MUTED, alpha=0.10, lw=0)
         ax.text(x0 + pd.Timedelta(days=1), 0.97, text, transform=ax.get_xaxis_transform(), ha="center",
                 va="top", fontsize=8.5, color=INK_2)
+    b = band.loc[sl] / 1e6
+    ax.fill_between(b.index, b[0.1], b[0.9], color=BLUE, alpha=0.16, linewidth=0, zorder=1,
+                    label="LightGBM 80% interval")
     ax.plot(y.index, y.values, color=INK, linewidth=2.2, label="actual", zorder=3)
     ends = [("actual", INK, y)]
     for key in ("naive_168", "lgbm"):
@@ -152,7 +162,7 @@ def holy_week_figure(feats, preds, start="2025-04-13", end="2025-04-27 23:00"):
         ax.plot(p.index, p.values, color=color, linewidth=1.6, linestyle="--" if key == "naive_168" else "-",
                 label=f"{label}  (MAPE {ape:.1f}%)", zorder=2)
         ends.append((label, color, p))
-    ax.legend(loc="lower left", frameon=False, fontsize=9.5, labelcolor=INK, ncol=3, bbox_to_anchor=(0, -0.2))
+    ax.legend(loc="lower left", frameon=False, fontsize=9.5, labelcolor=INK, ncol=4, bbox_to_anchor=(0, -0.2))
     ax.set_xlim(y.index[0], y.index[-1])
     days = pd.date_range(start, end, freq="D")
     ax.set_xticks(days, [d.strftime("%a %d") for d in days])
@@ -164,12 +174,71 @@ def holy_week_figure(feats, preds, start="2025-04-13", end="2025-04-27 23:00"):
     plt.close(fig)
 
 
+GREEN = "#1baf7a"
+INTERVAL_METHODS = {  # (column in data/intervals_summary.csv, label, colour)
+    "quantile regression": ("Quantile regression (raw)", MUTED),
+    "recent residuals": ("Recent errors, ordinary vs holiday", GREEN),
+    "residuals by day type": ("Recent errors by day type (shipped)", BLUE),
+    "conformal QR": ("Conformalized quantile regression", ORANGE),
+}
+
+
+def intervals_figure():
+    """Calibration of the prediction intervals; reads the outputs of scripts/intervals.py."""
+    summ = pd.read_csv("data/intervals_summary.csv")
+    by_type = pd.read_csv("data/intervals_by_day_type.csv", index_col=0)
+    fig, (a, b) = plt.subplots(1, 2, figsize=(11, 4.6), facecolor=SURFACE, gridspec_kw={"width_ratios": [1, 1.1]})
+
+    style(a, "Does an 80 % / 95 % interval contain 80 % / 95 % of the values?", "share of hours inside")
+    a.title.set_fontsize(10.5)
+    levels = ["80%", "95%"]
+    step = 0.16
+    for i, (key, (label, color)) in enumerate(INTERVAL_METHODS.items()):
+        for j, lv in enumerate(levels):
+            r = summ[(summ["method"] == key) & (summ["interval"] == lv)].iloc[0]
+            x = j + (i - 1.5) * step
+            a.plot([x, x], [r["ci_lo"], r["ci_hi"]], color=color, linewidth=2.2, solid_capstyle="round")
+            a.plot(x, r["coverage"], "o", color=color, markersize=7, markeredgecolor=SURFACE, markeredgewidth=1.5,
+                   label=label if j == 0 else None)
+    for j, nominal in enumerate((0.80, 0.95)):
+        a.hlines(nominal, j - 0.42, j + 0.42, color=INK, linewidth=1.2, linestyle=(0, (4, 3)))
+        a.text(j + 0.44, nominal, "target", fontsize=8, color=INK_2, va="center")
+    a.set_xticks([0, 1], ["80 % interval", "95 % interval"])
+    a.set_xlim(-0.55, 1.65)
+    a.set_ylim(0.6, 1.0)
+
+    style(b, "Coverage of the 80 % interval, by day type")
+    b.title.set_fontsize(10.5)
+    b.grid(axis="y", visible=False)
+    b.grid(axis="x", color=GRID, linewidth=0.8)
+    types = ["weekday", "Saturday", "Sunday", "near holiday", "holiday"]
+    for i, (key, (label, color)) in enumerate(INTERVAL_METHODS.items()):
+        ys = [len(types) - 1 - k + (1.5 - i) * 0.13 for k in range(len(types))]
+        b.plot(by_type.loc[types, key], ys, "o", color=color, markersize=7, markeredgecolor=SURFACE,
+               markeredgewidth=1.5)
+    b.axvline(0.8, color=INK, linewidth=1.2, linestyle=(0, (4, 3)))
+    b.set_yticks(range(len(types)), list(reversed(types)))
+    b.tick_params(axis="y", labelsize=9, colors=INK_2)
+    b.set_xlim(0.6, 0.9)
+    b.set_xlabel("share of hours inside the interval (target 0.80)", fontsize=9, color=INK_2)
+
+    handles, labels = a.get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper right", ncol=2, frameon=False, fontsize=9, labelcolor=INK,
+               bbox_to_anchor=(0.99, 1.0))
+    fig.suptitle("xm-demand-forecast: prediction intervals", x=0.02, y=0.99, ha="left", va="top", fontsize=13,
+                 color=INK)
+    fig.subplots_adjust(left=0.07, right=0.98, top=0.76, bottom=0.12, wspace=0.28)
+    fig.savefig(DOCS / "intervals.png", dpi=150, facecolor=SURFACE)
+    plt.close(fig)
+
+
 def main() -> None:
     DOCS.mkdir(exist_ok=True)
-    feats, preds = load()
+    feats, preds, band = load()
     results_figure(feats, preds)
-    holy_week_figure(feats, preds)
-    print("wrote docs/results.png and docs/holy_week.png")
+    holy_week_figure(feats, preds, band)
+    intervals_figure()
+    print("wrote docs/results.png, docs/holy_week.png and docs/intervals.png")
 
 
 if __name__ == "__main__":

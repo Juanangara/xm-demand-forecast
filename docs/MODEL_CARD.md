@@ -32,6 +32,9 @@ By day type (LightGBM, 5 years): weekday 1.50 %, Saturday 1.65 %, Sunday 1.83 %,
 
 Paired tests (Diebold-Mariano, Newey-West, 7 lags; 95 % block-bootstrap intervals) put LightGBM ahead of the naive baseline and of MSTL with intervals far from zero. See `docs/DEVLOG.md` (Phase 7).
 
+## Prediction intervals
+The API returns 80 % and 95 % intervals per hour: the point forecast times (1 + quantiles of the model's own relative errors over the last year of walk-forward forecasts), computed separately for each kind of day and stored in `meta.json` when the model is trained. Measured on 2023-04 to 2026-10 (1,310 days): coverage 79.1 % for the 80 % interval (95 % CI 77.2 to 81.2) and 94.1 % for the 95 % interval, with a mean width of about 5.1 % of the forecast. Coverage by kind of day is close to 80 % on weekdays, Saturdays and Sundays, 77.3 % near holidays and **72.4 % on holidays**. Raw LightGBM quantile regression was clearly overconfident (70.2 %) and was not used; a conformalized version covers holidays better (78.7 %) but is about 9 % wider and needs four more models. See DEVLOG Phase 13.
+
 ## Limitations and known issues
 - **Optimistic estimate.** The holiday features were designed after seeing the baseline's errors on the test period; the validation split fixes the window choice, not the feature design.
 - **Few distinct holidays** in the test (about 125 holiday-affected days), so the holiday numbers are the least firm.
@@ -39,6 +42,7 @@ Paired tests (Diebold-Mariano, Newey-West, 7 lags; 95 % block-bootstrap interval
 - **Frozen vs. retrained:** a model trained once in 2022 scores 1.65 % on the same period, so frequent retraining is not what drives the result.
 - **Demand shocks** (the two masked episodes, and any future event of that kind) are not forecastable by this model.
 - **Calendar source:** the holiday list was checked against my own knowledge, not the official decree.
+- **Intervals:** under-cover on holidays; the method was chosen among four after seeing the evaluation period, so its coverage is somewhat optimistic; the stored quantiles are fixed at training time and go stale if not recomputed.
 - **The API's `mape_pct` for past days is in-sample** (flagged by `in_sample: true`); use the table above for accuracy.
 
 ## Monitoring and maintenance
