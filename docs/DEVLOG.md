@@ -234,3 +234,9 @@ Linting also found 13 small issues (unused imports, long lines, several statemen
 ## Publication (2026-11-22)
 
 The repository was published as `Juanangara/xm-demand-forecast` (public, no license). The first real GitHub Actions run passed on both jobs (`test`: lint and 41 tests on Ubuntu; `docker`: image build), with no fix needed after the clean-checkout check of Phase 11. This closes the first limit listed there ("not yet run on GitHub"); the other limits stand (the Docker job only builds the image, no coverage, no CD).
+
+## README figures (2026-11-22)
+
+`scripts/make_figures.py` redraws `docs/results.png` (error by kind of day, by month and by day type, plus the paired differences with their 95 % intervals) and `docs/holy_week.png` (a fortnight around Holy Week 2025) from the saved predictions; every number in them is recomputed, none is copied. Two facts that the figures made visible and that are now written in the README instead of being left implicit:
+- LightGBM beats MSTL in **41 of 46 months**, not all of them. The worst is 2024-09 (2.47 % against 1.94 %), inside the stretch of harder days seen in Phase 10. On Saturdays the two tie at 1.6 %.
+- On Holy Thursday and Good Friday 2025 LightGBM misses by 3.9 % (the naive baseline by 12.9 %): it still overshoots the holidays themselves. The week after, the naive baseline copies the holidays onto two ordinary days (13.9 % against 1.6 %). That fortnight was picked because it is clear, not because it is typical.

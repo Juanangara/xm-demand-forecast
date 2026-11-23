@@ -52,6 +52,17 @@ Test period: 2023-01 to 2026-10 (46 monthly folds, 1,400 days, 33,600 hours), sa
 
 LightGBM beats the naive baseline in 46 of 46 months. Against MSTL the difference is 0.61 MAPE points (95 % block-bootstrap CI -0.77 to -0.47) and, on ordinary days alone, 0.26 points (CI -0.38 to -0.16), so the gain is not only holiday handling.
 
+![Error by kind of day, by month, by day type, and the paired differences with their intervals](docs/results.png)
+
+What the figure shows:
+- **Holidays are where the models differ most.** On holiday-affected days the error is 10.9 % for the naive baseline, 6.4 % for MSTL and 2.2 % for LightGBM; on ordinary days the three are much closer (2.6 %, 1.8 %, 1.6 %).
+- **Not a clean sweep.** LightGBM is below MSTL in 41 of 46 months, not all of them; the worst month is 2024-09 (2.47 % against 1.94 %). On Saturdays the two tie at 1.6 %, to one decimal.
+- **The intervals are far from zero** for every comparison in the last panel, including ordinary days against MSTL (0.26 points, the smallest).
+
+![Two weeks around Holy Week 2025: actual demand, the naive forecast and the LightGBM forecast, hour by hour](docs/holy_week.png)
+
+A concrete case: Holy Thursday and Good Friday 2025 (17-18 April). The naive baseline copies the previous week and misses by 12.9 % on those two holidays; LightGBM misses by 3.9 %, and the figure shows it still overshoots the holidays themselves. One week later the naive baseline copies the holidays onto two ordinary days and misses by 13.9 %, while LightGBM, which knows about the holidays, misses by 1.6 %. Over the whole fortnight: 5.9 % against 1.7 %. It is one example chosen because it is clear, not a typical week.
+
 What these numbers do **not** say:
 - The test period was not untouched: the holiday features were designed after looking at the baseline's errors on it, so 1.64 % is probably a little optimistic.
 - Neither MSTL nor LightGBM was tuned.
@@ -76,6 +87,7 @@ python scripts/train_lgbm.py
 python scripts/stat_baseline.py        # slow: 1,400 daily refits (about 1 s each on one core)
 python scripts/select_window.py
 python scripts/compare.py
+python scripts/make_figures.py         # redraws docs/results.png and docs/holy_week.png
 
 # 4. Final model for the API (writes models/champion/)
 python scripts/train_final.py
@@ -113,9 +125,10 @@ A day whose previous hour is not in the history returns `422` with a message say
 src/xmforecast/   data, quality, audit, calendar, features, evaluate, forecast,
                   stats, monitor, serving, api
 scripts/          download, baselines, train_lgbm, stat_baseline, select_window,
-                  compare, train_final, error_analysis, simulate_drift, drift_report
+                  compare, train_final, make_figures, error_analysis, simulate_drift,
+                  drift_report
 tests/            synthetic-data tests, including the leak and API tests
-docs/             DEVLOG.md (measurements and decisions), MODEL_CARD.md
+docs/             DEVLOG.md (measurements and decisions), MODEL_CARD.md, figures
 ```
 
 ## Data
