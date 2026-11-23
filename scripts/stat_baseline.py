@@ -8,9 +8,7 @@ Usage: python scripts/stat_baseline.py [--test-start 2023-01-01] [--weeks 6]
 Writes data/pred_mstl.parquet (column `pred`, indexed by hour).
 """
 import argparse
-import sys
 import time
-from pathlib import Path
 
 import pandas as pd
 

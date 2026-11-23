@@ -25,8 +25,14 @@ from xmforecast.audit import mask_disturbances  # noqa: E402
 from xmforecast.calendar import holiday_dates  # noqa: E402
 from xmforecast.features import FEATURES, build_features  # noqa: E402
 from xmforecast.forecast import DEFAULT_PARAMS  # noqa: E402
-from xmforecast.monitor import (alarms, calibrate_threshold, first_alarm, level_signal,  # noqa: E402
-                                performance_signal, shape_signal, sustained_alarm)
+from xmforecast.monitor import (  # noqa: E402
+    alarms,
+    calibrate_threshold,
+    first_alarm,
+    level_signal,
+    performance_signal,
+    shape_signal,
+)
 from xmforecast.stats import daily_mape  # noqa: E402
 
 T = pd.Timestamp("2024-06-03")
@@ -49,9 +55,12 @@ def daily_errors(model, series: pd.Series, start: str, end: str | None = None) -
 
 def scenarios(s: pd.Series) -> dict[str, pd.Series]:
     after = s.index >= T
-    level = s.copy(); level[after] *= 1.10
-    shape = s.copy(); shape[after & s.index.hour.isin([18, 19, 20, 21])] *= 1.12
-    unit = s.copy(); unit[after] /= 1000
+    level = s.copy()
+    level[after] *= 1.10
+    shape = s.copy()
+    shape[after & s.index.hour.isin([18, 19, 20, 21])] *= 1.12
+    unit = s.copy()
+    unit[after] /= 1000
     return {"clean": s, "level_shift": level, "evening_shape": shape, "unit_bug": unit}
 
 
@@ -101,9 +110,10 @@ def main() -> None:
             if d is not None:
                 chal = train_frozen(alt, str((d - pd.Timedelta(days=1)).date()))
                 nxt = (d + pd.Timedelta(days=1), d + pd.Timedelta(days=28))
+                lo, hi = str(nxt[0].date()), str(nxt[1].date())
                 payoff.append({"scenario": name, "alarm_date": d.date(),
-                               "frozen_mape": daily_errors(model_b, alt, str(nxt[0].date()), str(nxt[1].date())).mean(),
-                               "retrained_mape": daily_errors(chal, alt, str(nxt[0].date()), str(nxt[1].date())).mean()})
+                               "frozen_mape": daily_errors(model_b, alt, lo, hi).mean(),
+                               "retrained_mape": daily_errors(chal, alt, lo, hi).mean()})
     res = pd.DataFrame(rows)
     pd.set_option("display.width", 200)
     print("\nDetection delay in days after the injection on 2024-06-03 "
@@ -111,7 +121,8 @@ def main() -> None:
     print(res.pivot(index="monitor", columns="scenario", values="delay_days").to_string())
     print("\nClean series: false alarm days / episodes in the 520 days before 2024-06-03, "
           "and alarm days over the whole run (1,400 days):")
-    c = res[res.scenario == "clean"].set_index("monitor")[["false_alarm_days_before_T", "false_episodes_before_T", "alarm_days_all_period"]]
+    cols = ["false_alarm_days_before_T", "false_episodes_before_T", "alarm_days_all_period"]
+    c = res[res.scenario == "clean"].set_index("monitor")[cols]
     print(c.to_string())
     pf = pd.DataFrame(payoff)
     pf["gain_points"] = pf["frozen_mape"] - pf["retrained_mape"]

@@ -1,0 +1,6 @@
+# What CI installs: the exact serving dependencies plus the test and lint tools.
+# No data download, MLflow, Evidently or statsforecast are needed: tests use synthetic data.
+-r requirements-serve.txt
+pytest>=8
+httpx>=0.27
+ruff>=0.5

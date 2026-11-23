@@ -1,8 +1,15 @@
 import numpy as np
 import pandas as pd
 
-from xmforecast.monitor import (alarms, calibrate_threshold, first_alarm, level_signal,
-                                performance_signal, shape_signal, sustained_alarm)
+from xmforecast.monitor import (
+    alarms,
+    calibrate_threshold,
+    first_alarm,
+    level_signal,
+    performance_signal,
+    shape_signal,
+    sustained_alarm,
+)
 
 
 def _series(days: int = 80, noise: float = 0.0) -> pd.Series:

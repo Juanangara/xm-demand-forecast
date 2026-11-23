@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pandas as pd  # noqa: E402
 from evidently import DataDefinition, Dataset, Report  # noqa: E402
 from evidently.presets import DataDriftPreset  # noqa: E402
-
 from simulate_drift import T, scenarios  # noqa: E402
 
 

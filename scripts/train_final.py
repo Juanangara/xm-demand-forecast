@@ -64,7 +64,7 @@ def main() -> None:
 
     mlflow.set_tracking_uri("sqlite:///mlflow.db")
     mlflow.set_experiment("day-ahead-demand")
-    with mlflow.start_run(run_name="final_model") as run:
+    with mlflow.start_run(run_name="final_model"):
         mlflow.log_params({k: v for k, v in meta.items() if k not in ("reference_metrics", "features")})
         mlflow.log_params(DEFAULT_PARAMS)
         mlflow.log_metrics(REFERENCE_METRICS)
@@ -73,7 +73,7 @@ def main() -> None:
             model.booster_, name="model", registered_model_name="xm-demand-day-ahead"
         )
     print(f"saved {out}/ (trained until {meta['trained_until']}, {len(train)} rows); "
-          f"registered {info.registered_model_version and 'xm-demand-day-ahead v' + str(info.registered_model_version)}")
+          f"registered xm-demand-day-ahead v{info.registered_model_version}")
 
 
 if __name__ == "__main__":
