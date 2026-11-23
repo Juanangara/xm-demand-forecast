@@ -284,4 +284,5 @@ Coverage of the 80 % interval by kind of day (raw QR / errors ordinary-vs-holida
 - The quantiles are static in the service. The evaluation updated them every day from the previous year of errors, so the service can be less accurate than the numbers above until they are recomputed at the next retraining.
 - Holidays under-cover; each holiday contributes 24 correlated hours, so the holiday coverage is the least firm number.
 - Hours are not independent, so the confidence intervals use day blocks; they describe variability, not a guarantee.
+- The clean-environment check (committed files only, CI dependencies only) failed on the first try: the test of the quantile training needs scikit-learn, which the serving image rightly does not install. It is now in `requirements-test.txt`. Caught before publishing.
 - Two mistakes along the way: an invalid MLflow metric name (`width_%`) crashed the first run after the CSVs had been written, and left one empty run behind, which the script now deletes before logging (it replaces earlier results on rerun).
