@@ -23,17 +23,17 @@ This repo is also a measurement log: the [development log](docs/DEVLOG.md) recor
 ## How it works
 ```mermaid
 flowchart LR
-    XM[XM API] -->|download.py, monthly cache| RAW[(Parquet)]
-    RAW --> AUDIT[Quality report + anomaly audit]
-    AUDIT --> FEAT[Features: lags >= 24 h, holidays, calendar]
-    FEAT --> WF[Walk-forward evaluation]
-    WF --> CMP[Baselines, MSTL, Diebold-Mariano]
-    WF -.-> MLF[(MLflow)]
-    FEAT --> FINAL[train_final.py]
-    FINAL --> MODEL[models/champion]
-    MODEL --> API[FastAPI in Docker]
+    XM["XM API"] -->|"download.py, monthly cache"| RAW[("Parquet")]
+    RAW --> AUDIT["Quality report and anomaly audit"]
+    AUDIT --> FEAT["Features: lags of 24 h or more, holidays, calendar"]
+    FEAT --> WF["Walk-forward evaluation"]
+    WF --> CMP["Baselines, MSTL, Diebold-Mariano"]
+    WF -.-> MLF[("MLflow")]
+    FEAT --> FINAL["train_final.py"]
+    FINAL --> MODEL["models/champion"]
+    MODEL --> API["FastAPI in Docker"]
     RAW --> API
-    RAW --> MON[Drift monitors]
+    RAW --> MON["Drift monitors"]
 ```
 
 1. `scripts/download.py` pulls `DemaReal` (real demand of the national system, kWh per hour) month by month and reports gaps, duplicates and zeros per year.
