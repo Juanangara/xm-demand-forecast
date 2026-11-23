@@ -22,10 +22,11 @@ def _series(days: int = 80) -> pd.Series:
 def env(tmp_path):
     s = _series()
     f = build_features(s).dropna(subset=FEATURES + ["base", "y"])
-    model = lgb.LGBMRegressor(n_estimators=30, verbose=-1, random_state=0).fit(f[FEATURES], f["y"] / f["base"])
+    # native LightGBM API on purpose: the serving image (and CI) do not install scikit-learn
+    booster = lgb.train({"verbose": -1, "seed": 0}, lgb.Dataset(f[FEATURES], f["y"] / f["base"]), num_boost_round=30)
     mdir = tmp_path / "champion"
     mdir.mkdir()
-    model.booster_.save_model(str(mdir / "model.txt"))
+    booster.save_model(str(mdir / "model.txt"))
     (mdir / "meta.json").write_text(json.dumps({
         "name": "test-model", "code_commit": "abc123", "window_years": 5,
         "trained_until": str(s.index.max()), "features": FEATURES}), encoding="utf-8")
