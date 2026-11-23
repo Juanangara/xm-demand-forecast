@@ -211,3 +211,22 @@ Gains of 0.03-0.05 points are within the noise of 28 days; the unit bug is a bro
 - The synthetic failures are not real incidents; real drift is usually slower and messier.
 - The thresholds and the calendar-aware level monitor were not validated on an independent period.
 - Nothing is connected to the API or scheduled; this phase shows the logic and measures it.
+
+## Phase 11: continuous integration (2026-11-22)
+
+**What the workflow does** (`.github/workflows/ci.yml`, on every push to `main` and every pull request):
+- `test`: Python 3.12 on Ubuntu, installs `requirements-test.txt` (the exact serving dependencies plus pytest, httpx and ruff), runs `ruff check src tests scripts` and `pytest`. No data download, MLflow, Evidently or statsforecast: every test uses synthetic data, so CI needs no secrets and no network beyond PyPI.
+- `docker`: builds the API image, so a broken Dockerfile or a missing dependency is caught.
+
+**How it was checked without GitHub.** It has not run on GitHub yet (the repo is local only). Instead the committed files were exported with `git archive` into an empty folder, a fresh virtual environment was built from `requirements-test.txt` alone, and the same steps were run: lint passes and 41 tests pass; the workflow YAML parses; the Docker image builds from that clean export (875 MB). That check found two problems that only exist outside my machine:
+1. The API tests trained their toy model with `LGBMRegressor`, which needs scikit-learn. The serving image does not install it (it only needs the native `Booster`), so 5 tests failed in the clean environment while passing on mine, where scikit-learn was there by accident. The tests now use the native `lgb.train`.
+2. `requirements.txt` did not list scikit-learn either, although `forecast.py` and `train_final.py` use `LGBMRegressor`; it had been installed only as a side effect of other packages. It is listed now.
+The same class of mistake had already happened with FastAPI in Phase 9; the clean-checkout test is what catches it.
+
+Linting also found 13 small issues (unused imports, long lines, several statements on one line, an unused variable); fixed. The simulation of Phase 10 was rerun after those edits and gives identical numbers.
+
+**Limits:**
+- **Not yet run on GitHub.** Differences between this check (Windows host, a local virtual environment) and the real runner (Ubuntu, `actions/checkout@v4`, `actions/setup-python@v5`) are possible; the first real run may need a fix. I did not verify the action versions against a live run.
+- The `docker` job only builds the image; it does not start the API, because the model and data are not in git, so there is nothing to serve in CI.
+- The image is 875 MB (pandas, pyarrow, LightGBM); it has not been slimmed.
+- Lint rules are deliberately minimal (errors, pyflakes, warnings, import order). There is no coverage report, no type checking, and no deployment step (CD).
