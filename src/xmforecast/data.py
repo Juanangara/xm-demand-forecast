@@ -75,3 +75,30 @@ def download(metric: str, entity: str, start_year: int, end: dt.date) -> pd.Data
     # Months cached before to_long coerced values may still hold text.
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
     return df
+
+
+def fetch_range(metric: str, entity: str, start: dt.date, end: dt.date, retries: int = 3) -> pd.DataFrame:
+    """Long frame (`ts`, `value`) for `start`..`end` inclusive, never cached.
+
+    Used by the daily refresh: the last days can be revised by XM, so they must be re-read, not
+    served from a monthly cache. Requests are split in chunks of at most 31 days (the API limit).
+    """
+    from pydataxm.pydataxm import ReadDB  # imported lazily: slow and network-bound
+
+    frames, cur = [], start
+    while cur <= end:
+        chunk_end = min(end, cur + dt.timedelta(days=30))
+        for attempt in range(retries):
+            try:
+                wide = ReadDB().request_data(metric, entity, cur, chunk_end)
+                break
+            except Exception:
+                if attempt == retries - 1:
+                    raise
+                time.sleep(2**attempt)
+        if wide is not None and not wide.empty:
+            frames.append(to_long(wide))
+        cur = chunk_end + dt.timedelta(days=1)
+    if not frames:
+        return pd.DataFrame({"ts": pd.Series(dtype="datetime64[ns]"), "value": pd.Series(dtype="float64")})
+    return pd.concat(frames, ignore_index=True)

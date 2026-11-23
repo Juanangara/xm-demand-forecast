@@ -15,6 +15,7 @@ This repo is also a measurement log: the [development log](docs/DEVLOG.md) recor
 - Colombian public-holiday calendar as features (holidays are 9 % of the hours but 28 % of the baseline's error)
 - Comparison against a seasonal-naive baseline and a classical MSTL model, with Diebold-Mariano tests and block-bootstrap confidence intervals
 - Training window chosen on a validation split that precedes the test period
+- A daily refresh script with a data-quality gate (it rejects the provisional days XM sometimes returns) and a prospective track record of its own forecasts
 - 80 % and 95 % prediction intervals, with their calibration measured (coverage with confidence intervals, by day type) against two alternative methods
 - MLflow experiment tracking and model registry
 - FastAPI service in Docker, with input validation and explicit errors
@@ -114,7 +115,7 @@ python scripts/make_drift_figure.py    # docs/drift.png; about 2 minutes (trains
 # 4. Final model for the API (writes models/champion/)
 python scripts/train_final.py
 
-# 5. Serve
+# 5. Serve (and, optionally, `python scripts/refresh.py` to update the history from XM first)
 docker compose up --build
 curl "http://localhost:8000/forecast?date=2026-10-12"   # any date inside your history, or the day after it ends
 ```
@@ -150,12 +151,21 @@ Each line is a monitor's signal divided by its own threshold (calibrated on 2021
 
 `scripts/drift_report.py` writes an Evidently report for the profile-change case.
 
+## Daily refresh
+`python scripts/refresh.py` re-reads the last days from XM, forecasts the first day that has no accepted data yet, appends that forecast to a log, and prints how earlier forecasts did against the real values that have arrived since. Everything is written under `data/` (not versioned) and nothing is published. `--dry-run` queries and reports without writing. It is meant to be scheduled with the operating system (cron, Windows Task Scheduler); restart the API afterwards, since it reads the history at startup.
+
+What running it for the first time showed, and how it is handled:
+- **XM publishes with a delay of several days.** On 22 November the latest data was from the 19th, so the "next day" to forecast is already in the past. The forecast is made before its real values are published, which keeps the record honest, but this is **not** a real-time day-ahead service: with lags of 24 and 48 hours, the model cannot forecast today or tomorrow until the data for the days before them exists.
+- **The most recent days can be provisional.** XM returned 18 and 19 November with 24 hours each but only 59 GWh a day, against about 250 normally (0.24x). A day is accepted only if its daily demand is between 0.6x and 1.4x that of the same weekday in the previous four weeks (over 9,794 days since 2000 the ratio has ranged from 0.70, on New Year's Day, to 1.25). Rejected days stay out of the history and are re-read on the next run, when XM may have revised them.
+- **The gate has limits.** A day that is, say, 80 % complete would pass, and a day accepted today could still be revised by XM later, which would change how the forecast made for it is scored.
+- **The first forecast made for a day is never overwritten**, so the log cannot be flattered after the fact. Its record is prospective with respect to data availability, not with respect to the calendar: that day has already happened, and its demand may well be visible in other XM sources (I did not check).
+
 ## Repository layout
 ```
 src/xmforecast/   data, quality, audit, calendar, features, evaluate, forecast,
-                  intervals, stats, monitor, serving, api
+                  intervals, refresh, stats, monitor, serving, api
 scripts/          download, baselines, train_lgbm, stat_baseline, select_window,
-                  compare, intervals, train_final, make_figures, make_drift_figure, error_analysis, simulate_drift,
+                  compare, intervals, train_final, refresh, make_figures, make_drift_figure, error_analysis, simulate_drift,
                   drift_report
 tests/            synthetic-data tests, including the leak and API tests
 docs/             DEVLOG.md (measurements and decisions), MODEL_CARD.md, figures
@@ -167,7 +177,7 @@ Demand comes from [XM](https://www.xm.com.co) through the `pydataxm` package (so
 On reuse terms: the `pydataxm` and SIMEM client code is MIT-licensed, but I found no licence or terms for the data itself, and XM's website terms (read only in part) restrict copying and publishing its content without authorization; I could not read the SIMEM terms, and it is unclear whether the website terms cover the API. Treat reuse of the data as unresolved: rebuild it yourself with the scripts, do not redistribute it, and ask XM if you need to.
 
 ## Limitations
-- It is not a live service: the history is a Parquet file that ends at the last downloaded complete month, and there is no daily refresh job.
+- It is not a live service. The history is a Parquet file, the refresh script updates it when you run it, and XM publishes several days late, so the forecast is always for a day that has already happened (see Daily refresh). Nothing is scheduled for you.
 - The API has no authentication, rate limiting or load tests.
 - The prediction intervals under-cover on holidays (about 72 % for the 80 % interval), their method was chosen after seeing the evaluation period, and the quantiles are fixed at training time.
 - Drift monitoring is an offline simulation with three synthetic failures; it is not wired to the API.

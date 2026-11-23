@@ -286,3 +286,22 @@ Coverage of the 80 % interval by kind of day (raw QR / errors ordinary-vs-holida
 - Hours are not independent, so the confidence intervals use day blocks; they describe variability, not a guarantee.
 - The clean-environment check (committed files only, CI dependencies only) failed on the first try: the test of the quantile training needs scikit-learn, which the serving image rightly does not install. It is now in `requirements-test.txt`. Caught before publishing.
 - Two mistakes along the way: an invalid MLflow metric name (`width_%`) crashed the first run after the CSVs had been written, and left one empty run behind, which the script now deletes before logging (it replaces earlier results on rerun).
+
+## Phase 14: daily refresh (2026-11-22)
+
+**Why now.** I had held back the idea of a daily job because I mixed two things: *querying* XM every day (the API's intended use, no key, per-call caps) and *publishing* the results (unresolved, see "XM terms of use"). A private refresh publishes nothing, so it does not touch that problem, and it adds something no historical validation can: a record of forecasts made before their real values existed.
+
+**What it does** (`scripts/refresh.py`, pure logic in `src/xmforecast/refresh.py`, 10 tests): re-reads the last 7 days from XM and merges them into the history; forecasts the first day without accepted data, with intervals; appends that forecast to `data/live_forecasts.parquet` (never overwriting the first one made for a day); prints a scoreboard of past forecasts against real values. `--dry-run` writes nothing. Verified against the real API, including a second run that added nothing and left the log untouched.
+
+**Two findings from the first real query (22 November 2026), neither of which I had anticipated:**
+1. **XM's latest data is about three days old** (last hour available: 19 November). A model with 24 h and 48 h lags cannot forecast today or tomorrow from that, so the service cannot be a real-time day-ahead forecaster as things stand. The README says so instead of presenting this as a live service.
+2. **The most recent days arrive provisional.** 18 and 19 November came back with 24 hours each but about 59 GWh a day against about 250 (0.24x). My first version of the merge only dropped partial days, so it would have accepted them, and the forecast would have been built on corrupt lags. A dry run exposed it before anything was written.
+
+**The quality gate.** A new day is accepted only if its daily demand is within 0.6x to 1.4x of the median of the same weekday in the previous four weeks, judged against the history accepted so far. Evidence for the band: over 9,794 days from 2000 to 2026 the ratio ran from 0.70 (1 January) to 1.25, and the corrupt days sit at 0.24. After the gate, the history ended on 17 November and the forecast for 18 November came out at 252.3 GWh, a plausible Wednesday. Rejected days are re-read on every run, so they enter once XM revises them.
+
+**Limits.**
+- The gate only catches gross errors; a day that is 80 % complete passes. A day accepted today may still be revised by XM, which would change how its forecast is scored.
+- The record is prospective with respect to data availability, not the calendar: the day being forecast has already happened, and its demand may be visible elsewhere at XM (not checked).
+- The record is empty on day one and needs weeks to mean anything; no accuracy claim is made from it yet.
+- Nothing schedules the script; running it every day is up to the user, and the API must be restarted to see new data.
+- The data-fetching function `fetch_range` is exercised only by running the script against the real API, not by an automated test (no network in CI).
