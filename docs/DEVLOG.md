@@ -143,3 +143,17 @@ A sharp drop followed by a gradual recovery over a few hours looks like a real g
 - MSTL has a single setting (6-week window, no holiday regressors) and LightGBM uses default-like hyperparameters; neither was tuned. A stronger classical model would add holiday regressors.
 - The "holiday-affected" comparison uses 125 scattered days, so the Diebold-Mariano assumptions are looser there; read those p-values as indicative.
 - Fifteen paired tests were run without a multiple-comparison correction; all the headline results are far below any reasonable threshold, the 0.26 p-value is the only one that matters for a negative claim.
+
+## Phase 9: model export, API and container (2026-11-22)
+
+**Model.** `scripts/train_final.py` trains LightGBM on the last 5 years of all available history (to 2026-10-31, 43,825 rows, reviewed disturbances masked) and writes `models/champion/model.txt` + `meta.json` (version, training end, features, code commit, reference metrics). The same run is logged to MLflow and registered as `xm-demand-day-ahead` (v1). The API loads the exported folder, **not** the MLflow registry: the registry stores absolute Windows paths that would not exist inside a container, and a self-contained folder keeps the service independent of the tracking server. (The first registration attempt failed because MLflow 3 registers *logged models*, not plain artifact folders; fixed with `mlflow.lightgbm.log_model`. That failed attempt left one extra empty run in the local MLflow database.)
+
+**API (`src/xmforecast/api.py`, FastAPI).** `GET /forecast?date=YYYY-MM-DD` returns the 24 hourly forecasts (kWh), the day type and whether it is a holiday, the model version, and, when the real values are in the history, the day's MAPE. `GET /health`, `GET /model`. A forecast for day D only reads history before D 00:00, as in the evaluation; a test rewrites day D and later and checks the forecast does not move. Invalid dates and missing parameters give 422, and so does a day whose previous hour is not in the history (for example 2 days after the history ends), with a message saying what is missing.
+
+**Container.** `docker compose up` builds a `python:3.12-slim` image (non-root user, pinned dependencies, health check) and mounts `models/` and `data/` read-only, since neither is in git. Verified here: the container answered `/health` and `/forecast?date=2026-10-12` with the same numbers as the local run (MAPE 2.10 %, a holiday), and returned 422 for a date outside the history. 34 tests pass.
+
+**Honest limits:**
+- **`mape_pct` for past days is in-sample.** The final model was trained on those days, so it flatters the model; the response carries `in_sample: true` for every day inside the training window. The honest accuracy figure is the walk-forward result (1.64 %), not what the endpoint shows for past dates.
+- **It is not a live service yet.** The history is a Parquet file that stops at the last downloaded complete month (2026-10-31); real day-ahead use needs a daily refresh of the data (not implemented) and gaps in the latest hours are rejected, not filled.
+- There is no authentication, rate limiting or load test; it is a demonstration of the serving path, not a hardened service.
+- The container was tested on this machine only; there is no CI yet (Phase 11).
