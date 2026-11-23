@@ -157,3 +157,57 @@ A sharp drop followed by a gradual recovery over a few hours looks like a real g
 - **It is not a live service yet.** The history is a Parquet file that stops at the last downloaded complete month (2026-10-31); real day-ahead use needs a daily refresh of the data (not implemented) and gaps in the latest hours are rejected, not filled.
 - There is no authentication, rate limiting or load test; it is a demonstration of the serving path, not a hardened service.
 - The container was tested on this machine only; there is no CI yet (Phase 11).
+
+## Phase 10: drift monitoring (2026-11-22)
+
+**Question:** if the model runs for years without anyone watching, would we notice when something breaks, and is retraining the right response? Everything below is an offline simulation (`scripts/simulate_drift.py`), not a live service.
+
+**Setup.** A model trained up to 2022-12-31 is deployed **frozen** from 2023-01-01. Three signals (`src/xmforecast/monitor.py`), each with a threshold calibrated only on 2021-2022 using a model trained up to 2020 (never on the deployment period):
+- **level:** log of (mean of the last 7 days / mean of the 7 days before). Comparing with the previous week, not a fixed reference, avoids alarming on the slow growth the model already handles.
+- **shape:** the largest hourly change in the average daily profile (hour share of the day), same weekly comparison.
+- **performance:** 14-day rolling mean of the model's daily MAPE.
+
+Three failures were injected from 2024-06-03: demand +10 % (`level_shift`), hours 18-21 +12 % (`evening_shape`), and values divided by 1000 (`unit_bug`, a kWh to MWh pipeline bug).
+
+**Detection delay in days (None = no alarm within 60 days):**
+
+| Monitor | level +10 % | evening shape | unit bug |
+|---|---|---|---|
+| level (plain) | None | None | 0 |
+| level (calendar-aware) | 5 | None | 1 |
+| shape (plain) | None | 2 | None |
+| performance | 5 | None | 0 |
+
+- **No single monitor catches everything.** The performance monitor never sees the evening-shape change: the model adapts because its features are ratios to last week, so the error does not move. Only the shape monitor catches it. The level monitor catches the unit bug on day 0 and the performance monitor too.
+- **They go quiet after about two weeks** by construction (both windows end up inside the new regime), so a permanent shift raises a transient alarm, not a permanent one.
+
+**False alarms on the clean series** (days / episodes in the 520 clean days before the injection; alarm days over the whole 1,400-day run):
+
+| Monitor | before injection | whole run |
+|---|---|---|
+| performance | 0 / 0 | 16 |
+| level (plain) | 10 / 3 | 20 |
+| level (calendar-aware) | 3 / 1 | 10 |
+| shape (plain) | 4 / 3 | 10 |
+| shape (calendar-aware) | 6 / 4 | 20 |
+
+**Calendar-aware variants (public holidays left out of the weekly means).** For the level monitor this helped: it caught the +10 % shift that the plain version missed by a hair (peak 0.075 against a 0.080 threshold, because two holiday Mondays that week lowered the signal) and cut the false alarms. For the shape monitor it made things **worse** (fewer usable days per window, noisier average), so the plain shape monitor stays. The plain level monitor's false alarms were in Semana Santa and the end of the year, which is what led to the calendar-aware version; that variant was therefore designed after looking at this same deployment period.
+
+**Retraining is not the answer to an alarm.** Over the whole 2023-2026 test the frozen model scores MAPE 1.65 % against 1.64 % for the monthly-retrained one of Phase 6 (by year 1.66/1.80/1.55/1.60 against 1.67/1.80/1.51/1.56). Retraining at the first performance alarm, scored on the following 28 days out of sample:
+
+| Scenario | Alarm date | Frozen | Retrained at the alarm |
+|---|---|---|---|
+| clean series | 2024-09-22 | 2.12 % | 2.08 % |
+| level +10 % | 2024-06-08 | 1.86 % | 1.82 % |
+| evening shape | 2024-09-23 | 2.04 % | 2.01 % |
+| unit bug | 2024-06-03 | about 19,200 % | about 19,300 % |
+
+Gains of 0.03-0.05 points are within the noise of 28 days; the unit bug is a broken input that no retraining can fix. The performance alarms of Sep-Oct 2024 and Feb 2026 were real stretches of harder days (frozen 2.10 % against 2.08 % retrained), not a stale model. **Policy that follows:** an alarm opens an investigation (check the data pipeline first), and a challenger is promoted only if it beats the champion on held-out days; a periodic retrain (for example quarterly) is enough. For that reason `should_retrain` was renamed `sustained_alarm` (it only reports that an alarm has lasted 3 days).
+
+**Evidently.** `scripts/drift_report.py` builds an Evidently data-drift report (`data/drift_report.html`, not committed) for the evening-shape case, 28 days before against 28 days after. It flags 21 of 25 columns, which is misleading on its face: hour shares are compositional (if the evening rises, every other hour's share falls). The place of the change shows in the p-values (hours 18-21: 1e-16 to 1e-14; the daily mean is untouched, p = 0.94). Evidently is used for the human-readable report; the alarms come from the fast, tested checks above.
+
+**Limits:**
+- Three synthetic injections at one date, with a handful of false-alarm episodes: the delays and rates are indicative, not estimates with intervals. A different start date (for example a week without holidays) would change them.
+- The synthetic failures are not real incidents; real drift is usually slower and messier.
+- The thresholds and the calendar-aware level monitor were not validated on an independent period.
+- Nothing is connected to the API or scheduled; this phase shows the logic and measures it.
